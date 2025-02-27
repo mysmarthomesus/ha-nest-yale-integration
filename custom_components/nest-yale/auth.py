@@ -1,5 +1,5 @@
-import aiohttp
 import logging
+import httpx
 from .const import (
     API_AUTH_FAIL_RETRY_DELAY_SECONDS,
     API_TIMEOUT_SECONDS,
@@ -10,8 +10,7 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 class NestAuth:
-    def __init__(self, session, issue_token, api_key, cookies):
-        self.session = session
+    def __init__(self, issue_token, api_key, cookies):
         self.issue_token = issue_token
         self.api_key = api_key
         self.cookies = cookies
@@ -27,19 +26,16 @@ class NestAuth:
             "Referer": "https://accounts.google.com/o/oauth2/iframe",
         }
         try:
-            async with self.session.get(self.issue_token, headers=headers, cookies=self.cookies, timeout=aiohttp.ClientTimeout(total=API_TIMEOUT_SECONDS)) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    token = data.get("access_token")
-                    if not token:
-                        _LOGGER.error(f"No access_token in response: {data}")
-                        raise Exception("Failed to extract Google OAuth token")
-                    _LOGGER.debug(f"Successfully fetched Google OAuth token: {token[:10]}...")
-                    return token
-                else:
-                    response_text = await resp.text()
-                    _LOGGER.error(f"Failed to fetch Google token: {resp.status} - {response_text}")
-                    raise Exception(f"Google token fetch failed with status {resp.status}")
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(self.issue_token, headers=headers, cookies=self.cookies, timeout=API_TIMEOUT_SECONDS)
+                resp.raise_for_status()
+                data = resp.json()
+                token = data.get("access_token")
+                if not token:
+                    _LOGGER.error(f"No access_token in response: {data}")
+                    raise Exception("Failed to extract Google OAuth token")
+                _LOGGER.debug(f"Successfully fetched Google OAuth token: {token}")
+                return token
         except Exception as e:
             _LOGGER.error(f"Error fetching Google token: {e}", exc_info=True)
             raise
@@ -65,18 +61,16 @@ class NestAuth:
         }
         _LOGGER.debug(f"Exchanging Google token for Nest JWT at {url} with headers: {headers}")
         try:
-            async with self.session.post(url, headers=headers, json=data, cookies=self.cookies, timeout=aiohttp.ClientTimeout(total=API_TIMEOUT_SECONDS)) as resp:
-                if resp.status == 200:
-                    token_data = await resp.json()
-                    self.access_token = token_data.get("jwt")
-                    if not self.access_token:
-                        _LOGGER.error(f"No jwt in response: {token_data}")
-                        raise Exception("Failed to extract Nest JWT")
-                    _LOGGER.info("Authentication successful")
-                else:
-                    response_text = await resp.text()
-                    _LOGGER.error(f"JWT exchange failed with status {resp.status}: {response_text}")
-                    raise Exception(f"JWT exchange failed: {resp.status}")
+            async with httpx.AsyncClient() as client:
+                resp = await client.post(url, headers=headers, json=data, cookies=self.cookies, timeout=API_TIMEOUT_SECONDS)
+                resp.raise_for_status()
+                token_data = resp.json()
+                self.access_token = token_data.get("jwt")
+                if not self.access_token:
+                    _LOGGER.error(f"No jwt in response: {token_data}")
+                    raise Exception("Failed to extract Nest JWT")
+                _LOGGER.debug(f"Authentication successful, JWT: {self.access_token}")
+                return self.access_token
         except Exception as e:
             _LOGGER.error(f"Authentication error: {e}", exc_info=True)
             raise

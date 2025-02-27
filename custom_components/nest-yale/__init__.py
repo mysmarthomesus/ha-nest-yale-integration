@@ -1,7 +1,7 @@
 import logging
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from .const import DOMAIN, PLATFORMS, DESCRIPTOR_FILE_PATH
+from .const import DOMAIN, PLATFORMS, DESCRIPTOR_FILE_PATH, parse_cookies
 from .coordinator import NestYaleCoordinator
 from .auth import NestAuth
 from .api_client import APIClient
@@ -14,9 +14,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     """Set up Nest Yale from a config entry."""
     issue_token = entry.data["issue_token"]
     api_key = entry.data["api_key"]
-    cookies = entry.data["cookies"]
+    cookies = parse_cookies(entry.data["cookies"])  # Ensure dict
 
-    auth = NestAuth(None, issue_token, api_key, cookies)
+    auth = NestAuth(issue_token, api_key, cookies)
     api_client = APIClient(auth)
     protobuf_manager = ProtobufManager(DESCRIPTOR_FILE_PATH)
     await protobuf_manager.load_descriptor()

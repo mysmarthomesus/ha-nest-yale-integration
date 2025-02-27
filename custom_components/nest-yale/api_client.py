@@ -21,7 +21,7 @@ class APIClient:
     async def send_protobuf_request(self, endpoint, protobuf_message):
         """Send a Protobuf request with streaming support."""
         await self.auth.authenticate()
-        _LOGGER.debug(f"Using JWT: {self.auth.access_token[:10]}...")
+        _LOGGER.debug(f"Using JWT: {self.auth.access_token}")
 
         url = f"https://{GRPC_HOSTNAME}{endpoint}"
         headers = {
@@ -47,7 +47,6 @@ class APIClient:
             async for chunk in response.aiter_bytes():
                 response_data += chunk
                 _LOGGER.debug(f"Received chunk: {chunk.hex()} (total length: {len(response_data)} bytes)")
-                break  # Process first chunk for now; adjust for full stream later
             return response_data
 
     async def close(self):

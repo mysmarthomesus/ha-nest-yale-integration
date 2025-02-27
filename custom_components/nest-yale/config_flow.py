@@ -40,11 +40,11 @@ class NestYaleConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 issue_token = user_input[CONF_ISSUE_TOKEN]
                 api_key = user_input[CONF_API_KEY]
                 cookies = parse_cookies(user_input[CONF_COOKIES])
-                auth = NestAuth(None, issue_token, api_key, cookies)  # No session needed
+                auth = NestAuth(issue_token, api_key, cookies)  # Removed None
                 await auth.authenticate()
                 protobuf_manager = ProtobufManager(DESCRIPTOR_FILE_PATH)
                 await protobuf_manager.load_descriptor()
-                api_client = APIClient(auth)  # No session
+                api_client = APIClient(auth)
                 device_parser = DeviceParser(protobuf_manager)
                 proto_path = os.path.join(os.path.dirname(__file__), "ObserveTraits.protobuf")
                 loop = asyncio.get_running_loop()
