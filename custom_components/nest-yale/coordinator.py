@@ -22,16 +22,22 @@ class NestYaleCoordinator(DataUpdateCoordinator):
     async def _async_update_data(self):
         """Fetch data from the Nest API."""
         try:
-            # Load ObserveTraits.protobuf directly
             proto_path = os.path.join(os.path.dirname(__file__), "ObserveTraits.protobuf")
+            loop = asyncio.get_running_loop()
             with open(proto_path, "rb") as f:
-                serialized_request = f.read()
+                serialized_request = await loop.run_in_executor(None, f.read)
             _LOGGER.debug(f"Loaded ObserveTraits.protobuf, serialized: {serialized_request.hex()}")
 
             response_data = await self.api_client.send_protobuf_request(ENDPOINT_OBSERVE, serialized_request)
             self.devices = self.device_parser.parse_devices(response_data)
             return self.devices
+        except FileNotFoundError as e:
+            _LOGGER.error(f"ObserveTraits.protobuf not found at {proto_path}. Please ensure the file exists.")
+            raise
         except Exception as e:
             _LOGGER.error(f"Failed to update data: {e}", exc_info=True)
             await asyncio.sleep(API_RETRY_DELAY_SECONDS)
             raise
+
+    async def async_unload(self):
+        await self.api_client.close()

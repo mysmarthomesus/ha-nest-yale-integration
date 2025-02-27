@@ -1,5 +1,6 @@
-import aiohttp
+import httpx
 import logging
+import asyncio
 from .const import (
     REQUEST_TIMEOUT,
     SUCCESS_STATUS_CODES,
@@ -13,14 +14,14 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 class APIClient:
-    def __init__(self, session, auth):
-        self.session = session
+    def __init__(self, auth):
         self.auth = auth
+        self.client = httpx.AsyncClient(http2=True, timeout=API_TIMEOUT_SECONDS)
 
     async def send_protobuf_request(self, endpoint, protobuf_message):
-        """Send a Protobuf request with retry on auth failure."""
-        if not self.auth.access_token:
-            await self.auth.authenticate()
+        """Send a Protobuf request with streaming support."""
+        await self.auth.authenticate()
+        _LOGGER.debug(f"Using JWT: {self.auth.access_token[:10]}...")
 
         url = f"https://{GRPC_HOSTNAME}{endpoint}"
         headers = {
@@ -32,29 +33,22 @@ class APIClient:
             "X-Accept-Response-Streaming": "true",
             "Referer": f"https://{PRODUCTION_HOSTNAME['api_hostname']}/",
             "Origin": f"https://{PRODUCTION_HOSTNAME['api_hostname']}",
-            "Accept": "application/x-protobuf.google.rpc.streambody",  # Match Homebridge streaming
+            "Accept": "application/x-protobuf.google.rpc.streambody",
         }
-        serialized_request = protobuf_message.SerializeToString()
-        _LOGGER.debug(f"Sending request to {url} with data: {serialized_request.hex()}")
+        if isinstance(protobuf_message, bytes):
+            serialized_request = protobuf_message
+        else:
+            serialized_request = protobuf_message.SerializeToString()
+        _LOGGER.debug(f"Sending request to {url} with headers: {headers}, data: {serialized_request.hex()}")
 
-        async with self.session.post(
-            url, headers=headers, data=serialized_request, cookies=self.auth.cookies, timeout=aiohttp.ClientTimeout(total=API_TIMEOUT_SECONDS)
-        ) as response:
-            _LOGGER.debug(f"Response headers: {response.headers}")
-            response_data = await response.read()
-            _LOGGER.debug(f"Response data preview: {response_data[:100].hex()}")
-
-            if b"<!doctype html>" in response_data:
-                _LOGGER.error("Received HTML instead of Protobuf. Reauthenticating...")
-                await self.auth.authenticate()
-                async with self.session.post(
-                    url, headers=headers, data=serialized_request, cookies=self.auth.cookies, timeout=aiohttp.ClientTimeout(total=API_TIMEOUT_SECONDS)
-                ) as retry_response:
-                    response_data = await retry_response.read()
-                    if b"<!doctype html>" in response_data:
-                        raise Exception("Authentication failed: Received HTML login page after retry")
-            elif response.status not in SUCCESS_STATUS_CODES:
-                response_text = await response.text()
-                _LOGGER.error(f"Request failed with status {response.status}: {response_text}")
-                raise Exception(f"Request failed: {response.status}")
+        async with self.client.stream("POST", url, headers=headers, content=serialized_request, cookies=self.auth.cookies) as response:
+            _LOGGER.debug(f"Response status: {response.status_code}, headers: {response.headers}")
+            response_data = b""
+            async for chunk in response.aiter_bytes():
+                response_data += chunk
+                _LOGGER.debug(f"Received chunk: {chunk.hex()} (total length: {len(response_data)} bytes)")
+                break  # Process first chunk for now; adjust for full stream later
             return response_data
+
+    async def close(self):
+        await self.client.aclose()

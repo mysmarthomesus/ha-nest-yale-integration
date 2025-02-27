@@ -1,6 +1,5 @@
 import voluptuous as vol
 import logging
-import aiohttp
 import os
 from homeassistant import config_entries
 from homeassistant.const import CONF_NAME
@@ -41,21 +40,25 @@ class NestYaleConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 issue_token = user_input[CONF_ISSUE_TOKEN]
                 api_key = user_input[CONF_API_KEY]
                 cookies = parse_cookies(user_input[CONF_COOKIES])
-                async with aiohttp.ClientSession() as session:
-                    auth = NestAuth(session, issue_token, api_key, cookies)
-                    await auth.authenticate()
-                    protobuf_manager = ProtobufManager(DESCRIPTOR_FILE_PATH)
-                    await protobuf_manager.load_descriptor()
-                    api_client = APIClient(session, auth)
-                    device_parser = DeviceParser(protobuf_manager)
-                    proto_path = os.path.join(os.path.dirname(__file__), "ObserveTraits.protobuf")
-                    with open(proto_path, "rb") as f:
-                        serialized_request = f.read()
-                    _LOGGER.debug(f"Loaded ObserveTraits.protobuf in config flow, serialized: {serialized_request.hex()}")
-                    response_data = await api_client.send_protobuf_request(ENDPOINT_OBSERVE, serialized_request)
-                    devices = device_parser.parse_devices(response_data)
-                    _LOGGER.debug(f"Devices found during setup: {devices}")
+                auth = NestAuth(None, issue_token, api_key, cookies)  # No session needed
+                await auth.authenticate()
+                protobuf_manager = ProtobufManager(DESCRIPTOR_FILE_PATH)
+                await protobuf_manager.load_descriptor()
+                api_client = APIClient(auth)  # No session
+                device_parser = DeviceParser(protobuf_manager)
+                proto_path = os.path.join(os.path.dirname(__file__), "ObserveTraits.protobuf")
+                loop = asyncio.get_running_loop()
+                with open(proto_path, "rb") as f:
+                    serialized_request = await loop.run_in_executor(None, f.read)
+                _LOGGER.debug(f"Loaded ObserveTraits.protobuf in config flow, serialized: {serialized_request.hex()}")
+                response_data = await api_client.send_protobuf_request(ENDPOINT_OBSERVE, serialized_request)
+                devices = device_parser.parse_devices(response_data)
+                _LOGGER.debug(f"Devices found during setup: {devices}")
+                await api_client.close()
                 return self.async_create_entry(title=user_input[CONF_NAME], data=user_input)
+            except FileNotFoundError as e:
+                _LOGGER.error(f"ObserveTraits.protobuf not found at {proto_path}. Please ensure the file exists.")
+                errors["base"] = "file_not_found"
             except Exception as e:
                 _LOGGER.error(f"Unexpected error during config: {e}", exc_info=True)
                 errors["base"] = "unknown"

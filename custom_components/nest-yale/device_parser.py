@@ -13,12 +13,12 @@ class DeviceParser:
             response = self.protobuf_manager.create_message("nest.rpc.StreamBody")
             try:
                 response.ParseFromString(response_data)
-                _LOGGER.debug(f"Full StreamBody response: {response}")
+                _LOGGER.debug(f"Parsed StreamBody response: {response}")
             except DecodeError as e:
-                _LOGGER.error(f"Failed to parse Protobuf response: {e}")
-                raise
+                _LOGGER.error(f"Failed to parse as StreamBody: {e}, raw data: {response_data.hex()} (length: {len(response_data)} bytes)")
+                return []
         else:
-            response = response_data  # Already parsed
+            response = response_data
 
         devices = {}
         if response.status.code == 0:  # Success status
