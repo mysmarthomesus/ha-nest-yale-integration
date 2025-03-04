@@ -1,36 +1,44 @@
+#__init__.py
 import logging
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from .const import DOMAIN, PLATFORMS, DESCRIPTOR_FILE_PATH, parse_cookies
-from .coordinator import NestYaleCoordinator
-from .auth import NestAuth
-from .api_client import APIClient
-from .protobuf_manager import ProtobufManager
-from .device_parser import DeviceParser
+from .const import DOMAIN, PLATFORMS
+from .api_client import NestAPIClient
+from .coordinator import NestCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
-    """Set up Nest Yale from a config entry."""
-    issue_token = entry.data["issue_token"]
-    api_key = entry.data["api_key"]
-    cookies = parse_cookies(entry.data["cookies"])  # Ensure dict
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Set up Nest Yale Lock from a config entry."""
+    _LOGGER.debug("Setting up Nest Yale Lock integration.")
 
-    auth = NestAuth(issue_token, api_key, cookies)
-    api_client = APIClient(auth)
-    protobuf_manager = ProtobufManager(DESCRIPTOR_FILE_PATH)
-    await protobuf_manager.load_descriptor()
-    device_parser = DeviceParser(protobuf_manager)
-    coordinator = NestYaleCoordinator(hass, api_client, device_parser)
+    issue_token = entry.data.get("issue_token")
+    api_key = entry.data.get("api_key")
+    cookies = entry.data.get("cookies")
 
-    await coordinator.async_config_entry_first_refresh()
+    if not issue_token or not api_key or not cookies:
+        _LOGGER.error("Missing required authentication credentials. Setup failed.")
+        return False
+
+    conn = await NestAPIClient.create(hass, issue_token, api_key, cookies)  # Use create()
+    await conn.authenticate()
+
+    coordinator = NestCoordinator(hass, conn)
+    await coordinator.async_setup()
+
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
+    _LOGGER.info("Nest Yale Lock integration successfully set up.")
     return True
 
-async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
+async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
-    coordinator = hass.data[DOMAIN].pop(entry.entry_id)
-    await coordinator.async_unload()
+    _LOGGER.debug("Unloading Nest Yale Lock integration.")
+
+    coordinator = hass.data[DOMAIN].pop(entry.entry_id, None)
+    if coordinator:
+        await coordinator.api_client.close()
+
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)

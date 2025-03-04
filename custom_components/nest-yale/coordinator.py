@@ -1,43 +1,79 @@
+#coordinator.py
 import asyncio
 import logging
-import os
-from datetime import timedelta
+from datetime import timedelta  # Add this import
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
-from .const import ENDPOINT_OBSERVE, API_SUBSCRIBE_DELAY_SECONDS, API_RETRY_DELAY_SECONDS
 
 _LOGGER = logging.getLogger(__name__)
 
-class NestYaleCoordinator(DataUpdateCoordinator):
-    def __init__(self, hass, api_client, device_parser):
-        super().__init__(
-            hass,
-            _LOGGER,
-            name="Nest Yale",
-            update_interval=timedelta(seconds=API_SUBSCRIBE_DELAY_SECONDS),
-        )
+UPDATE_INTERVAL = timedelta(seconds=30)  # Use timedelta instead of int
+
+class NestCoordinator(DataUpdateCoordinator):
+    def __init__(self, hass, api_client):
+        """Initialize the Nest update coordinator."""
+        super().__init__(hass, _LOGGER, name="Nest Yale", update_interval=UPDATE_INTERVAL)
         self.api_client = api_client
-        self.device_parser = device_parser
-        self.devices = []
+        self.data = {"devices": {"locks": {}}, "user_id": None}
+        self._observer_task = None
 
     async def _async_update_data(self):
-        """Fetch data from the Nest API."""
+        """Fetch data periodically."""
         try:
-            proto_path = os.path.join(os.path.dirname(__file__), "ObserveTraits.protobuf")
-            loop = asyncio.get_running_loop()
-            with open(proto_path, "rb") as f:
-                serialized_request = await loop.run_in_executor(None, f.read)
-            _LOGGER.debug(f"Loaded ObserveTraits.protobuf, serialized: {serialized_request.hex()}")
-
-            response_data = await self.api_client.send_protobuf_request(ENDPOINT_OBSERVE, serialized_request)
-            self.devices = self.device_parser.parse_devices(response_data)
-            return self.devices
-        except FileNotFoundError as e:
-            _LOGGER.error(f"ObserveTraits.protobuf not found at {proto_path}. Please ensure the file exists.")
-            raise
+            # Fetch latest state
+            locks_data = await self.api_client.refresh_state()
+            if locks_data:
+                self.data["devices"]["locks"] = locks_data
+                self.data["user_id"] = self.api_client.userid
+            return self.data
         except Exception as e:
-            _LOGGER.error(f"Failed to update data: {e}", exc_info=True)
-            await asyncio.sleep(API_RETRY_DELAY_SECONDS)
+            _LOGGER.error(f"Update error: {e}")
             raise
+
+    async def async_setup(self):
+        """Set up the coordinator."""
+        # Ensure API client is initialized
+        await self.api_client.async_setup()
+
+        # Fetch initial state
+        try:
+            async with asyncio.timeout(60):
+                locks_data = await self.api_client.refresh_state()
+                if locks_data:
+                    self.data["devices"]["locks"] = locks_data
+                    self.data["user_id"] = self.api_client.userid
+                    self.async_set_updated_data(self.data)
+                    _LOGGER.debug(f"Initial lock data set: {self.data}")
+        except asyncio.TimeoutError:
+            _LOGGER.warning("Timeout fetching initial lock data")
+        except Exception as e:
+            _LOGGER.error(f"Initial setup error: {e}")
+
+        # Start observer in background
+        self._observer_task = self.hass.async_create_task(self._run_observer())
+
+    async def _run_observer(self):
+        """Continuously listen for lock updates from the Nest API."""
+        while True:
+            try:
+                if not self.api_client.connection.connected:
+                    _LOGGER.debug("Re-initializing API client connection")
+                    await self.api_client.async_setup()
+                    await self.api_client.authenticate()
+                async for locks_data in self.api_client.observe():
+                    if locks_data:
+                        self.data["devices"]["locks"] = locks_data
+                        self.data["user_id"] = self.api_client.userid
+                        self.async_set_updated_data(self.data)
+                        _LOGGER.debug(f"Stream updated coordinator data: {self.data}")
+            except Exception as e:
+                _LOGGER.error(f"Observer error: {e}, retrying in 10 seconds")
+                await asyncio.sleep(10)
 
     async def async_unload(self):
-        await self.api_client.close()
+        """Unload the coordinator."""
+        if self._observer_task:
+            self._observer_task.cancel()
+            try:
+                await self._observer_task
+            except asyncio.CancelledError:
+                pass
