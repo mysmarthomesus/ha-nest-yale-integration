@@ -6,7 +6,7 @@ import asyncio
 import aiofiles
 from google.protobuf.message import DecodeError
 from google.protobuf.any_pb2 import Any
-from .proto import roots_pb2, weave_security_pb2
+from .proto import root_pb2, weave_security_pb2
 from .protobuf_manager import read_protobuf_file
 from .const import (
     USER_AGENT_STRING,
@@ -29,7 +29,7 @@ class NestProtobufHandler:
     def __init__(self):
         self.buffer = bytearray()
         self.pending_length = None
-        self.stream_body = roots_pb2.StreamBody()
+        self.stream_body = root_pb2.StreamBody()
 
     def _decode_varint(self, buffer, pos):
         value = 0

@@ -18,7 +18,7 @@ from .const import (
     PRODUCTION_HOSTNAME,
     USER_AGENT_STRING,
 )
-from .proto import roots_pb2
+from .proto import root_pb2
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -245,7 +245,7 @@ class NestAPIClient:
         cmd_any.type_url = command["command"]["type_url"]
         cmd_any.value = command["command"]["value"] if isinstance(command["command"]["value"], bytes) else command["command"]["value"].SerializeToString()
 
-        request = roots_pb2.ResourceCommandRequest()
+        request = root_pb2.ResourceCommandRequest()
         request.resourceCommands.add().command.CopyFrom(cmd_any)
         request.resourceRequest.resourceId = device_id
         request.resourceRequest.requestId = str(uuid.uuid4())
