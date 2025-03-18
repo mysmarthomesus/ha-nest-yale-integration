@@ -1,4 +1,4 @@
-#auth.py
+#!/usr/bin/env python3
 import aiohttp
 import asyncio
 import urllib.parse
@@ -191,3 +191,4 @@ class NestAuthenticator:
         finally:
             if own_session:
                 await session.close()
+                _LOGGER.debug("Authenticator session closed")
