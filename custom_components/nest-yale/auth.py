@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 import aiohttp
 import asyncio
 import urllib.parse
@@ -30,6 +29,8 @@ class NestAuthenticator:
             _LOGGER.warning(f"Invalid cookies type: {type(cookies)}. Defaulting to empty dict.")
             self.cookies = {}
         self.access_token = None
+        # also capture id_token from Google response
+        self.id_token = None
         _LOGGER.debug("NestAuthenticator initialized with updated auth.py")
 
     @staticmethod
@@ -117,6 +118,8 @@ class NestAuthenticator:
                             raise ValueError(f"Google response is not a valid JSON dict: {raw_response}")
                         _LOGGER.debug(f"Google response: {google_data}")
                         google_token = google_data.get("access_token")
+                        # capture Google's ID token for downstream structureId lookup
+                        self.id_token = google_data.get("id_token")
                         if not google_token:
                             error_msg = google_data.get("error", "Unknown error")
                             error_detail = google_data.get("detail", "No details provided")
@@ -167,6 +170,7 @@ class NestAuthenticator:
                     _LOGGER.debug("Authenticated successfully with JWT token")
                     return {
                         "access_token": self.access_token,
+                        "id_token": self.id_token,
                         "userid": "unknown",
                         "urls": {"transport_url": f"https://{PRODUCTION_HOSTNAME['api_hostname']}"}
                     }

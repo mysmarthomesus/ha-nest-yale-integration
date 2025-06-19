@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 import os
 import logging
 import uuid
@@ -18,7 +17,8 @@ from .const import (
     PRODUCTION_HOSTNAME,
     USER_AGENT_STRING,
 )
-from .proto import root_pb2
+#from .proto import root_pb2
+from .proto.nestlabs.gateway import v1_pb2
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -114,10 +114,43 @@ class NestAPIClient:
                 _LOGGER.warning(f"No id_token in auth_data, awaiting stream for user_id and structure_id")
             _LOGGER.info(f"Authenticated with access_token: {self.access_token[:10]}..., user_id: {self._user_id}, structure_id: {self._structure_id}")
             await self.refresh_state()  # Initial refresh to discover IDs
+            # Also ensure structure_id is set via REST directly
+            self._structure_id = await self.fetch_structure_id()
+            self.current_state["structure_id"] = self._structure_id
         except Exception as e:
             _LOGGER.error(f"Authentication failed: {e}", exc_info=True)
             await self.close()
             raise
+
+    async def fetch_structure_id(self):
+        """Mimic Homebridge's REST call to get structureId."""
+        if not self.access_token:
+            _LOGGER.warning("Cannot fetch structure_id without access_token")
+            return None
+        target_user = self._user_id or 'self'
+        url = f"https://home.nest.com/api/0.1/user/{target_user}?auth={self.access_token}"
+        headers = {
+            "User-Agent": USER_AGENT_STRING,
+            "Accept": "application/json",
+        }
+        async with self.session.get(url, headers=headers) as resp:
+            if resp.status != 200:
+                _LOGGER.error(f"Failed to fetch structureId. Status: {resp.status}")
+                return None
+            user_data = await resp.json()
+            # Optionally update user_id if available in user_data
+            possible_user_id = user_data.get("userid") or user_data.get("user", {}).get("user_id")
+            if possible_user_id:
+                old_user_id = self._user_id
+                self._user_id = possible_user_id
+                self.current_state["user_id"] = self._user_id
+                if old_user_id != self._user_id:
+                    _LOGGER.info(f"Updated user_id from user_data: {self._user_id} (was {old_user_id})")
+            structures = user_data.get("structures", {})
+            if not structures:
+                _LOGGER.warning("No structures found in user response")
+                return None
+            return next(iter(structures.keys()))
 
     async def refresh_state(self):
         if not self.access_token:
@@ -222,7 +255,8 @@ class NestAPIClient:
                 else:
                     raise
 
-    async def send_command(self, command, device_id):
+    #async def send_command(self, command, device_id):
+    async def send_command(self, command, device_id, structure_id=None):
         if not self.access_token:
             await self.authenticate()
 
@@ -232,12 +266,17 @@ class NestAPIClient:
             "User-Agent": USER_AGENT_STRING,
             "X-Accept-Content-Transfer-Encoding": "binary",
             "X-Accept-Response-Streaming": "true",
-            "x-nl-webapp-version": "NlAppSDKVersion/8.15.0 NlSchemaVersion/2.1.20-87-gce5742894",
             "referer": "https://home.nest.com/",
             "origin": "https://home.nest.com",
-            "X-Nest-Structure-Id": self._structure_id if self._structure_id else "unknown",
+            "x-nl-webapp-version": "NlAppSDKVersion/8.15.0 NlSchemaVersion/2.1.20-87-gce5742894",
             "request-id": str(uuid.uuid4()),
         }
+
+        # Always include a structure_id header, defaulting to the fetched one
+        effective_structure_id = structure_id or self._structure_id
+        if effective_structure_id:
+            headers["X-Nest-Structure-Id"] = effective_structure_id
+            _LOGGER.debug(f"[nest_yale] Using structure_id: {effective_structure_id}")
 
         api_url = f"{URL_PROTOBUF.format(grpc_hostname=PRODUCTION_HOSTNAME['grpc_hostname'])}{ENDPOINT_SENDCOMMAND}"
 
@@ -245,7 +284,8 @@ class NestAPIClient:
         cmd_any.type_url = command["command"]["type_url"]
         cmd_any.value = command["command"]["value"] if isinstance(command["command"]["value"], bytes) else command["command"]["value"].SerializeToString()
 
-        request = root_pb2.ResourceCommandRequest()
+    #   request = root_pb2.ResourceCommandRequest()
+        request = v1_pb2.ResourceCommandRequest()
         request.resourceCommands.add().command.CopyFrom(cmd_any)
         request.resourceRequest.resourceId = device_id
         request.resourceRequest.requestId = str(uuid.uuid4())

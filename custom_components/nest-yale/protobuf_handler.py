@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 import os
 import logging
 import uuid
@@ -6,7 +5,8 @@ import asyncio
 import aiofiles
 from google.protobuf.message import DecodeError
 from google.protobuf.any_pb2 import Any
-from .proto import root_pb2, weave_security_pb2
+from .proto.weave.trait import security_pb2 as weave_security_pb2
+from .proto import root_pb2
 from .protobuf_manager import read_protobuf_file
 from .const import (
     USER_AGENT_STRING,
