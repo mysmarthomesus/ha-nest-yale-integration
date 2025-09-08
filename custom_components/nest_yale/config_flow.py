@@ -2,7 +2,6 @@ import logging
 import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.core import callback
-from homeassistant.helpers import aiohttp_client
 from .api_client import NestAPIClient
 from .const import DOMAIN, CONF_ISSUE_TOKEN, CONF_API_KEY, CONF_COOKIES
 
@@ -18,6 +17,10 @@ class NestYaleConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors = {}
 
         if user_input is not None:
+            # Check if already configured
+            await self.async_set_unique_id(DOMAIN)
+            self._abort_if_unique_id_configured()
+            
             try:
                 # Validate credentials asynchronously
                 await self._validate_credentials(user_input)
@@ -39,18 +42,19 @@ class NestYaleConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def _validate_credentials(self, user_input):
         """Validate API credentials asynchronously."""
-        session = aiohttp_client.async_get_clientsession(self.hass)
-        api_client = NestAPIClient(
-            self.hass,
-            issue_token=user_input[CONF_ISSUE_TOKEN],
-            api_key=user_input[CONF_API_KEY],
-            cookies=user_input[CONF_COOKIES]
-        )
-
         try:
-            await api_client.authenticate()
-        finally:
-            await api_client.close()  # Ensure session is properly closed
+            # Create and test the API client
+            api_client = await NestAPIClient.create(
+                self.hass,
+                issue_token=user_input[CONF_ISSUE_TOKEN],
+                api_key=user_input[CONF_API_KEY],
+                cookies=user_input[CONF_COOKIES]
+            )
+            # If we get here, credentials are valid
+            await api_client.close()
+        except Exception as e:
+            _LOGGER.error(f"Credential validation failed: {e}")
+            raise ValueError(f"Invalid credentials: {e}")
 
     @staticmethod
     @callback

@@ -1,0 +1,22 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Nest Yale Lock Setup",
+        "description": "Enter your Nest account credentials to set up the Yale lock integration.",
+        "data": {
+          "issue_token": "Issue Token",
+          "api_key": "API Key", 
+          "cookies": "Cookies"
+        }
+      }
+    },
+    "error": {
+      "auth_failure": "Authentication failed. Please check your credentials.",
+      "unknown_error": "An unknown error occurred. Please try again."
+    },
+    "abort": {
+      "already_configured": "Device is already configured"
+    }
+  }
+}
