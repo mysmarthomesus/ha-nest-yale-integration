@@ -9,7 +9,8 @@
   "issue_tracker": "https://github.com/krozgrov/ha-nest-yale-integration/issues",
   "requirements": [
     "protobuf>=3.20.0",
-    "httpx>=0.23.0"
+    "httpx>=0.23.0",
+    "PyJWT>=2.0.0"
   ],
-  "version": "1.0.0"
+  "version": "1.0.1"
 }
