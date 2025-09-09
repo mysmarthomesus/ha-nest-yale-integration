@@ -4,8 +4,6 @@ import asyncio
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from .const import DOMAIN, PLATFORMS
-from .api_client import NestAPIClient
-from .coordinator import NestCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -28,6 +26,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         return False
 
     try:
+        # Import heavy protobuf / API modules lazily so config flow import is cheap
+        from .api_client import NestAPIClient  # noqa: WPS433 (runtime import intentional)
+        from .coordinator import NestCoordinator  # noqa: WPS433
+
         _LOGGER.debug("Creating NestAPIClient")
         conn = await NestAPIClient.create(hass, issue_token, api_key, cookies)
         _LOGGER.debug("Creating NestCoordinator")

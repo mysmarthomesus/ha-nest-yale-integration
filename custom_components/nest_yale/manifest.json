@@ -8,10 +8,10 @@
   "iot_class": "cloud_push",
   "issue_tracker": "https://github.com/krozgrov/ha-nest-yale-integration/issues",
   "requirements": [
-    "protobuf==5.29.3",
+    "protobuf>=5.29.2,<5.30",
     "httpx>=0.23.0",
     "PyJWT>=2.0.0",
     "aiofiles>=23.0.0"
   ],
-  "version": "1.0.3"
+  "version": "1.0.4"
 }
